@@ -15,7 +15,7 @@ object SparkApp {
 
     val config = new SparkConf().setAppName("SparkApp").setMaster("local[*]")
 
-    val warehouseLocation = "file:${system:user.dir}/spark-warehouse"
+    val warehouseLocation = "${system:user.dir}/spark-warehouse"
 
     val spark = SparkSession
       .builder

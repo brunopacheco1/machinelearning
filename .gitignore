@@ -7,3 +7,6 @@
 /.project
 /.idea
 /project
+/derby.log
+/metastore_db
+/spark-warehouse
