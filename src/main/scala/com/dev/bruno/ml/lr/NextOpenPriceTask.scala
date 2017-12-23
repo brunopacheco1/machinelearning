@@ -1,13 +1,13 @@
 package com.dev.bruno.ml.lr
 
 import java.io.File
+import org.apache.spark.SparkConf
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.regression.LinearRegression
+import org.apache.spark.sql.SparkSession
 
 object NextOpenPriceTask {
 
-  import org.apache.spark.SparkConf
-  import org.apache.spark.ml.feature.VectorAssembler
-  import org.apache.spark.ml.regression.LinearRegression
-  import org.apache.spark.sql.SparkSession
 
   def main(args: Array[String]): Unit = {
     val source = new File("./stocks.parquet")
