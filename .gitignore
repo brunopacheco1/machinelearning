@@ -12,3 +12,6 @@
 /spark-warehouse
 /stocks.parquet
 /emas.parquet
+/lstm_model.zip
+/SparkStats.html
+/.SparkStats.html.crc
