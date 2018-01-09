@@ -24,7 +24,7 @@ object RNNBuilder {
   private val dropoutRatio = 0.2
   private val truncatedBPTTLength = 22
 
-  def build(nIn: Int, nOut: Int, sc: SparkContext, batchSize : Int): SparkDl4jMultiLayer = {
+  def build(nIn: Int, nOut: Int, batchSize : Int, sc: SparkContext): SparkDl4jMultiLayer = {
 
     val conf = new NeuralNetConfiguration.Builder()
       .seed(seed)
@@ -42,7 +42,8 @@ object RNNBuilder {
       .build()
 
     val net = new SparkDl4jMultiLayer(sc, conf, trainingMaster)
-    net.setListeners(new ScoreIterationListener(1))
+    net.setListeners(new ScoreIterationListener(100))
+    net.setCollectTrainingStats(true)
 
     net
   }
