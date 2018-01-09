@@ -23,7 +23,7 @@ object ClosePriceTask {
 
     // Basic configuration
     val conf = new SparkConf()
-      .setAppName("ClosePriceTask")
+      .setAppName("LR.ClosePriceTask")
       .setMaster("local[*]")
 
     // Initialization of Spark And Spark SQL Context
