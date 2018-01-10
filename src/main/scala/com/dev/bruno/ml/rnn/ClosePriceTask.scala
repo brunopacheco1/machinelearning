@@ -31,13 +31,26 @@ object ClosePriceTask {
       .option("header", "true") // The CSV file has header and use them as column names
       .option("inferSchema", "true").load("./GOOG.csv")
 
-    val min = dataset.groupBy().min("Open", "Close", "Low", "High", "Volume").head()
+    // Geting the NextOpenPrice for all dataset
+    dataset.createOrReplaceTempView("temp_stocks")
 
-    val max = dataset.groupBy().max("Open", "Close", "Low", "High", "Volume").head()
+    val nextOpenDatasetSql = "select date_add(Date, -1) as Date, Close as NextClose from temp_stocks "
+
+    val nextOpenDataset = spark.sql(nextOpenDatasetSql)
+    nextOpenDataset.createOrReplaceTempView("temp_next_close_price")
+
+    val sql = "select s.Date, s.Open, s.Close, s.Low, s.High, s.Volume, c.NextClose from temp_stocks s, temp_next_close_price c where to_date(s.Date) = c.Date order by s.Date"
+    val filter = "Date is not null and Open is not null and Close is not null and Low is not null and High  is not null and Volume is not null and NextClose is not null"
+
+    val updatedDataset = spark.sql(sql).filter(filter).distinct().sort("Date")
+
+    val min = updatedDataset.groupBy().min("Open", "Close", "Low", "High", "Volume").head()
+
+    val max = updatedDataset.groupBy().max("Open", "Close", "Low", "High", "Volume").head()
 
     // Split our dataset in two random ones for training and testing
-    val trainingDataset = dataset.filter("Date <= '2017-12-22'")
-    val testDataset = dataset.filter("Date > '2017-12-22'")
+    val trainingDataset = updatedDataset.filter("Date <= '2017-12-22'")
+    val testDataset = updatedDataset.filter("Date > '2017-12-22'")
 
     println("counters: training -> " + trainingDataset.count() + ", testing -> " + testDataset.count())
 
@@ -54,6 +67,8 @@ object ClosePriceTask {
       net.rnnClearPreviousState()
     }
 
+    //sparkNetwork.fit(trainingData)
+
     val stats = sparkNetwork.getSparkTrainingStats()    //Get the collect stats information
     StatsUtils.exportStatsAsHtml(stats, "SparkStats.html", sc)
 
@@ -63,10 +78,22 @@ object ClosePriceTask {
     // saveUpdater: i.e., the state for Momentum, RMSProp, Adagrad etc. Save this to train your network more in the future
     ModelSerializer.writeModel(net, locationToSave, true)
 
-    testingData.foreach(dataset => {
-      val result = net.rnnTimeStep(dataset.getFeatures).getDouble(0) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
+    testingData.collect().foreach(dataset => {
+      val prediction = net.rnnTimeStep(dataset.getFeatures)
 
-      val actual = dataset.getFeatures.getDouble(0) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
+      val result = prediction.getDouble(0) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
+
+      val actual = dataset.getLabels.getDouble(0) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
+
+      /*
+      println("______________________PREDICTION______________________")
+      println(prediction)
+      println("______________________LABELS______________________")
+      println(dataset.getLabels)
+      println("______________________FEATURES______________________")
+      println(dataset.getFeatures)
+      println("______________________END______________________")
+      */
 
       println(result + ", " + actual)
     })
@@ -74,10 +101,11 @@ object ClosePriceTask {
 
   def createDataSet(price: Row, min: Row, max : Row): DataSet = {
     val Open = price.getDouble(1)
-    val Close = price.getDouble(4)
+    val Close = price.getDouble(2)
     val Low = price.getDouble(3)
-    val High = price.getDouble(2)
-    val Volume = price.getInt(6).toDouble
+    val High = price.getDouble(4)
+    val Volume = price.getInt(5).toDouble
+    val NextClose = price.getDouble(6)
 
     val input = Nd4j.create(Array[Int](1, 5, 1), 'f')
 
@@ -89,7 +117,7 @@ object ClosePriceTask {
 
     val label = Nd4j.create(Array[Int](1, 1, 1), 'f')
 
-    label.putScalar(Array[Int](0, 0, 0), (Close - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
+    label.putScalar(Array[Int](0, 0, 0), (NextClose - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
 
     new DataSet(input, label)
   }
