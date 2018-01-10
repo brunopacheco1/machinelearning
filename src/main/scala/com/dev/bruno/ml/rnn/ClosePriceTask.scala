@@ -97,6 +97,8 @@ object ClosePriceTask {
 
       println(result + ", " + actual)
     })
+
+    spark.close()
   }
 
   def createDataSet(price: Row, min: Row, max : Row): DataSet = {

@@ -27,10 +27,10 @@ object ClosePriceTask {
       .setMaster("local[*]")
 
     // Initialization of Spark And Spark SQL Context
-    val sqlContext = SparkSession.builder.config(conf).getOrCreate
+    val spark = SparkSession.builder.config(conf).getOrCreate
 
     // Columns to be use as input in Linear Regression Algorithm
-    val features = Array("Open", "High", "Low", "NameIndex")
+    val features = Array("NameIndex", "Open", "Close", "Low", "High", "Volume")
 
     // It is necessary to aggregate all features in one array
     // to use Linear Regression Algorithm
@@ -38,30 +38,42 @@ object ClosePriceTask {
       .setInputCols(features)
       .setOutputCol("features")
 
-    val dataset = sqlContext.read.parquet("stocks.parquet")
+    val dataset = spark.read.parquet("stocks.parquet")
 
-    val featuredDataset = assembler.transform(dataset).sort("Date")
+    // Geting the NextOpenPrice for all dataset
+    dataset.createOrReplaceTempView("temp_stocks")
+
+    val nextCloseDatasetSql = "select date_add(Date, -1) as Date, Close as NextClose from temp_stocks "
+
+    val nextCloseDataset = spark.sql(nextCloseDatasetSql)
+    nextCloseDataset.createOrReplaceTempView("temp_next_close_price")
+
+    val sql = "select s.NameIndex, s.Name, s.Date, s.Open, s.Close, s.Low, s.High, s.Volume, c.NextClose from temp_stocks s, temp_next_close_price c where to_date(s.Date) = c.Date order by s.Date"
+    val filter = "NameIndex is not null and Name is not null and Date is not null and Open is not null and Close is not null and Low is not null and High  is not null and Volume is not null and NextClose is not null"
+
+    val updatedDataset = spark.sql(sql).filter(filter).distinct().sort("Date")
+
+    val featuredDataset = assembler.transform(updatedDataset)
 
     // Split our dataset in two random ones for training and testing
     val trainingDataset = featuredDataset.filter("Date <= '2016-12-31'")
     val testDataset = featuredDataset.filter("Date > '2016-12-31'")
 
     // Linear Regression Algorithm
-    // TODO Try to understand why we need to use setLabelCol
     val linearRegression = new LinearRegression()
-      .setLabelCol("Close")
+      .setLabelCol("NextClose")
       .setFeaturesCol("features")
-      .setPredictionCol("ClosePredicted")
+      .setPredictionCol("NextClosePredicted")
 
     // Our training model to use in prediction
     val model = linearRegression.fit(trainingDataset)
 
-    // A new column called prediction will be included in testDataset
+    // A new column will be included in testDataset
     val predictedDataset = model.transform(testDataset)
 
     // Selecting only important columns to compare and show
-    predictedDataset.select("Date", "Name", "Close", "ClosePredicted").show()
+    predictedDataset.select("Date", "Name", "NextClose", "NextClosePredicted").show()
 
-    sqlContext.close()
+    spark.close()
   }
 }
