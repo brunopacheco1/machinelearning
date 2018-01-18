@@ -2,15 +2,24 @@ package com.dev.bruno.ml.rnn
 
 import java.io.File
 
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{Row, SparkSession}
+import com.dev.bruno.ml.rnn.ClosePriceTask.createDataSet
 import org.apache.spark.SparkConf
+import org.apache.spark.ml.feature.{LabeledPoint, StandardScaler, VectorAssembler}
+import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.PipelineStage
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.rdd.RDD
 import org.deeplearning4j.spark.stats.StatsUtils
+import org.deeplearning4j.spark.util.MLLibUtil
 import org.deeplearning4j.util.ModelSerializer
 import org.nd4j.linalg.dataset.DataSet
 import org.nd4j.linalg.factory.Nd4j
+import org.nd4j.linalg.util.FeatureUtil
 
-object ClosePriceTask {
+
+
+object NextClosePriceTask {
 
   def main(args: Array[String]): Unit = {
     // Dependency to run in standalone mode on windows
@@ -39,7 +48,7 @@ object ClosePriceTask {
     val nextOpenDataset = spark.sql(nextOpenDatasetSql)
     nextOpenDataset.createOrReplaceTempView("temp_next_close_price")
 
-    val sql = "select s.Date, s.Open, s.Close, s.Low, s.High, s.Volume, c.NextClose from temp_stocks s, temp_next_close_price c where to_date(s.Date) = c.Date order by s.Date"
+    val sql = "select s.Date, s.Open, s.Close, s.Low, s.High, s.Volume, c.NextClose, year(s.Date) as year, month(s.Date) as month from temp_stocks s, temp_next_close_price c where to_date(s.Date) = c.Date order by s.Date"
     val filter = "Date is not null and Open is not null and Close is not null and Low is not null and High  is not null and Volume is not null and NextClose is not null"
 
     val updatedDataset = spark.sql(sql).filter(filter).distinct().sort("Date")
@@ -52,24 +61,26 @@ object ClosePriceTask {
     val trainingDataset = updatedDataset.filter("Date <= '2017-12-22'")
     val testDataset = updatedDataset.filter("Date > '2017-12-22'")
 
+    val batchSize = 22
+
     println("counters: training -> " + trainingDataset.count() + ", testing -> " + testDataset.count())
 
-    val trainingData: RDD[DataSet] = trainingDataset.rdd.map[DataSet](price => createDataSet(price, min, max))
+    val trainingData: RDD[DataSet] = trainingDataset.rdd
+      .groupBy(row => row.getInt(7) + "-" + row.getInt(8))
+      .map(group => createDataSet(min, max, group._2))
 
-    val testingData: RDD[DataSet] = testDataset.rdd.map(price => createDataSet(price, min, max))
+    val testingData: RDD[DataSet] = testDataset.rdd
+      .groupBy(row => row.getInt(7) + "-" + row.getInt(8))
+      .map(group => createDataSet(min, max, group._2))
 
-    val sparkNetwork = RNNBuilder.build(5, 1, 1, sc)
+    val sparkNetwork = RNNBuilder.build(5, 1, batchSize, sc)
 
     val epochs = 100
 
-    /*
     for(i <- 1 until epochs) {
       val net = sparkNetwork.fit(trainingData)
       net.rnnClearPreviousState()
     }
-    */
-
-    //sparkNetwork.fit(trainingData)
 
     val stats = sparkNetwork.getSparkTrainingStats()    //Get the collect stats information
     StatsUtils.exportStatsAsHtml(stats, "SparkStats.html", sc)
@@ -103,26 +114,32 @@ object ClosePriceTask {
     spark.close()
   }
 
-  def createDataSet(price: Row, min: Row, max : Row): DataSet = {
-    val Open = price.getDouble(1)
-    val Close = price.getDouble(2)
-    val Low = price.getDouble(3)
-    val High = price.getDouble(4)
-    val Volume = price.getInt(5).toDouble
-    val NextClose = price.getDouble(6)
+  def createDataSet(min: Row, max: Row, rows: Iterable[Row]): DataSet = {
+    val input = Nd4j.create(Array[Int](rows.size, 5, rows.size), 'f')
+    val label = Nd4j.create(Array[Int](rows.size, 1, rows.size), 'f')
 
-    val input = Nd4j.create(Array[Int](1, 5, 22), 'f')
+    var counter = 0
 
-    input.putScalar(Array[Int](0, 0, 0), (Open - min.getDouble(0)) / (max.getDouble(0) - min.getDouble(0)))
-    input.putScalar(Array[Int](0, 1, 0), (Close - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
-    input.putScalar(Array[Int](0, 2, 0), (Low - min.getDouble(2)) / (max.getDouble(2) - min.getDouble(2)))
-    input.putScalar(Array[Int](0, 3, 0), (High - min.getDouble(3)) / (max.getDouble(3) - min.getDouble(3)))
-    input.putScalar(Array[Int](0, 4, 0), (Volume - min.getInt(4).toDouble) / (max.getInt(4).toDouble - min.getInt(4).toDouble))
+    rows.foreach(price => {
+      val Open = price.getDouble(1)
+      val Close = price.getDouble(2)
+      val Low = price.getDouble(3)
+      val High = price.getDouble(4)
+      val Volume = price.getInt(5).toDouble
+      val NextClose = price.getDouble(6)
 
-    val label = Nd4j.create(Array[Int](1, 1, 1), 'f')
+      for(i <- 0 to rows.size - 1) {
+        input.putScalar(Array[Int](counter, 0, i), (Open - min.getDouble(0)) / (max.getDouble(0) - min.getDouble(0)))
+        input.putScalar(Array[Int](counter, 1, i), (Close - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
+        input.putScalar(Array[Int](counter, 2, i), (Low - min.getDouble(2)) / (max.getDouble(2) - min.getDouble(2)))
+        input.putScalar(Array[Int](counter, 3, i), (High - min.getDouble(3)) / (max.getDouble(3) - min.getDouble(3)))
+        input.putScalar(Array[Int](counter, 4, i), (Volume - min.getInt(4).toDouble) / (max.getInt(4).toDouble - min.getInt(4).toDouble))
 
-    label.putScalar(Array[Int](0, 0, 0), (NextClose - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
+        label.putScalar(Array[Int](counter, 0, i), (NextClose - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
+      }
 
+      counter = counter + 1
+    })
     new DataSet(input, label)
   }
 }
