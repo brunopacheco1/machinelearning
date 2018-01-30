@@ -22,9 +22,16 @@ object RNNBuilder {
   private val lstmLayer2Size = 256
   private val denseLayerSize = 32
   private val dropoutRatio = 0.2
-  private val truncatedBPTTLength = 22
+  //private val truncatedBPTTLength = 22
 
-  def build(nIn: Int, nOut: Int, batchSize : Int, sc: SparkContext): SparkDl4jMultiLayer = {
+  //Set up the Spark-specific configuration
+  /* How frequently should we average parameters (in number of minibatches)?
+  Averaging too frequently can be slow (synchronization + serialization costs) whereas too infrequently can result
+  learning difficulties (i.e., network may not converge) */
+  private val averagingFrequency = 3
+  //private val batchSizePerWorker = 8 //How many examples should be used per worker (executor) when fitting?
+
+  def build(nIn: Int, nOut: Int, timeFrameSize: Int, batchSize: Int, sc: SparkContext): SparkDl4jMultiLayer = {
 
     val conf = new NeuralNetConfiguration.Builder()
       .seed(seed)
@@ -36,10 +43,39 @@ object RNNBuilder {
       .regularization(true)
       .l2(1e-4)
       .list
-      .layer(0, new GravesLSTM.Builder().nIn(nIn).nOut(lstmLayer1Size).activation(Activation.TANH).gateActivationFunction(Activation.HARDSIGMOID).dropOut(dropoutRatio).build).layer(1, new GravesLSTM.Builder().nIn(lstmLayer1Size).nOut(lstmLayer2Size).activation(Activation.TANH).gateActivationFunction(Activation.HARDSIGMOID).dropOut(dropoutRatio).build).layer(2, new DenseLayer.Builder().nIn(lstmLayer2Size).nOut(denseLayerSize).activation(Activation.RELU).build).layer(3, new RnnOutputLayer.Builder().nIn(denseLayerSize).nOut(nOut).activation(Activation.IDENTITY).lossFunction(LossFunctions.LossFunction.MSE).build).backpropType(BackpropType.TruncatedBPTT).tBPTTForwardLength(truncatedBPTTLength).tBPTTBackwardLength(truncatedBPTTLength).pretrain(false).backprop(true).build
+      .layer(0, new GravesLSTM.Builder()
+        .nIn(nIn)
+        .nOut(lstmLayer1Size)
+        .activation(Activation.TANH)
+        .gateActivationFunction(Activation.HARDSIGMOID)
+        .dropOut(dropoutRatio).build)
+      .layer(1, new GravesLSTM.Builder()
+        .nIn(lstmLayer1Size)
+        .nOut(lstmLayer2Size)
+        .activation(Activation.TANH)
+        .gateActivationFunction(Activation.HARDSIGMOID)
+        .dropOut(dropoutRatio).build)
+      .layer(2, new DenseLayer.Builder()
+        .nIn(lstmLayer2Size)
+        .nOut(denseLayerSize)
+        .activation(Activation.RELU).build)
+      .layer(3, new RnnOutputLayer.Builder()
+        .nIn(denseLayerSize)
+        .nOut(nOut)
+        .activation(Activation.IDENTITY)
+        .lossFunction(LossFunctions.LossFunction.MSE).build
+      )
+      .backpropType(BackpropType.TruncatedBPTT)
+      .tBPTTForwardLength(timeFrameSize)
+      .tBPTTBackwardLength(timeFrameSize)
+      .pretrain(false)
+      .backprop(true)
+      .build
 
-    val trainingMaster = new ParameterAveragingTrainingMaster.Builder(batchSize)
-      .build()
+    val trainingMaster = new ParameterAveragingTrainingMaster.Builder(timeFrameSize)
+      .workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
+      .averagingFrequency(averagingFrequency)
+      .batchSizePerWorker(batchSize).build()
 
     val net = new SparkDl4jMultiLayer(sc, conf, trainingMaster)
     net.setListeners(new ScoreIterationListener(100))

@@ -3,10 +3,10 @@ package com.dev.bruno.ml.rnn
 import java.io.File
 import java.util
 
+import co.theasi.plotly.{AxisOptions, Figure, Plot, ScatterMode, ScatterOptions, draw, writer}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{Row, SparkSession}
 import org.deeplearning4j.spark.stats.StatsUtils
-import org.deeplearning4j.util.ModelSerializer
 import org.nd4j.linalg.dataset.DataSet
 import org.nd4j.linalg.factory.Nd4j
 
@@ -29,46 +29,44 @@ object NextClosePriceTask {
 
     val sc = spark.sparkContext
 
-    val dataset = spark.read.format("com.databricks.spark.csv")
+    val dataSet = spark.read
       .option("header", "true") // The CSV file has header and use them as column names
-      .option("inferSchema", "true").load("./GOOG.csv")
+      .option("inferSchema", "true").csv("./GOOG.csv")
 
-    // Geting the NextOpenPrice for all dataset
-    dataset.createOrReplaceTempView("temp_stocks")
+    // Geting the NextOpenPrice for all dataSet
+    dataSet.createOrReplaceTempView("temp_stocks")
 
-    val nextOpenDatasetSql = "select date_add(Date, -1) as Date, Close as NextClose from temp_stocks "
+    val nextOpenDataSetSql = "select date_add(Date, -1) as Date, Close as NextClose from temp_stocks "
 
-    val nextOpenDataset = spark.sql(nextOpenDatasetSql)
-    nextOpenDataset.createOrReplaceTempView("temp_next_close_price")
+    val nextOpenDataSet = spark.sql(nextOpenDataSetSql)
+    nextOpenDataSet.createOrReplaceTempView("temp_next_close_price")
 
     val sql = "select s.Date, s.Open, s.Close, s.Low, s.High, s.Volume, c.NextClose from temp_stocks s, temp_next_close_price c where to_date(s.Date) = c.Date order by s.Date"
     val filter = "Date is not null and Open is not null and Close is not null and Low is not null and High  is not null and Volume is not null and NextClose is not null"
 
-    val updatedDataset = spark.sql(sql).filter(filter).distinct().sort("Date")
+    val updatedDataSet = spark.sql(sql).filter(filter).distinct().sort("Date")
 
-    val min = updatedDataset.groupBy().min("Open", "Close", "Low", "High", "Volume").head()
+    val min = updatedDataSet.groupBy().min("Open", "Close", "Low", "High", "Volume").head()
 
-    val max = updatedDataset.groupBy().max("Open", "Close", "Low", "High", "Volume").head()
+    val max = updatedDataSet.groupBy().max("Open", "Close", "Low", "High", "Volume").head()
 
     val miniBatchSize = 64
 
-    val timeFrameSize = 22
+    val timeFrameSize = 30
 
     val splitRatio = 0.9
 
-    val list = updatedDataset.collectAsList()
+    val list = createTimeFrameList(timeFrameSize, updatedDataSet.collectAsList())
 
     val splitAt = list.size * splitRatio
 
-    val trainingList = list.subList(0, splitAt.intValue())
-
-    val testList = list.subList(splitAt.intValue(), list.size())
+    val (trainingList, testList) = list.splitAt(splitAt.intValue)
 
     val trainingSet = spark.sparkContext.parallelize(createTrainingSet(miniBatchSize, timeFrameSize, min, max, trainingList))
 
     val testSet = createTestSet(timeFrameSize, min, max, testList)
 
-    val sparkNetwork = RNNBuilder.build(5, 1, 1, sc)
+    val sparkNetwork = RNNBuilder.build(5, 1, timeFrameSize, miniBatchSize, sc)
 
     val epochs = 100
 
@@ -76,30 +74,56 @@ object NextClosePriceTask {
       sparkNetwork.fit(trainingSet)
     }
 
-    //sparkNetwork.fit(trainingData)
-
-    val stats = sparkNetwork.getSparkTrainingStats //Get the collect stats information
+    val stats = sparkNetwork.getSparkTrainingStats
     StatsUtils.exportStatsAsHtml(stats, "SparkStats.html", sc)
 
+    var xTest = new ListBuffer[Double]()
+    var yTest = new ListBuffer[Double]()
+    var yTestPredicted = new ListBuffer[Double]()
+
+    var counter = 1D
     testSet.foreach(set => {
       val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
       val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
 
       println(actual + " -> " + prediction)
+
+      xTest += counter
+
+      yTest += actual
+
+      yTestPredicted += prediction
+
+      counter += 1D
     })
 
-    val net = sparkNetwork.getNetwork
+    val commonAxisOptions = AxisOptions()
 
-    val locationToSave = new File("./lstm_model.zip")
+    val xAxisOptions = commonAxisOptions.title("Time Series")
+    val yAxisOptions = commonAxisOptions.title("Close Price")
+
+    val p = Plot()
+      .withScatter(xTest, yTest, ScatterOptions().mode(ScatterMode.Line).name("Test Set"))
+      .withScatter(xTest, yTestPredicted, ScatterOptions().mode(ScatterMode.Line).name("Predictions"))
+      .xAxisOptions(xAxisOptions)
+      .yAxisOptions(yAxisOptions)
+
+    val figure = Figure()
+      .plot(p)
+      .title("Stock Market Prediction")
+
+    draw(figure, "stock-prediction", writer.FileOptions(overwrite = true))
+
+    //val net = sparkNetwork.getNetwork
+    //val locationToSave = new File("./lstm_model.zip")
     // saveUpdater: i.e., the state for Momentum, RMSProp, Adagrad etc. Save this to train your network more in the future
-    ModelSerializer.writeModel(net, locationToSave, true)
+    // ModelSerializer.writeModel(net, locationToSave, true)
     spark.close()
   }
 
-  def createTrainingSet(miniBatchSize: Int, timeFrameSize: Int, min: Row, max: Row, rows: util.List[Row]): ListBuffer[DataSet] = {
+  def createTrainingSet(miniBatchSize: Int, timeFrameSize: Int, min: Row, max: Row, timeFrames: ListBuffer[ListBuffer[Row]]): ListBuffer[DataSet] = {
     var start = 0
-    var end = Math.min(timeFrameSize, rows.size)
-    var currentBatchSize = Math.min(miniBatchSize, rows.size)
+    var currentBatchSize = Math.min(miniBatchSize, timeFrames.size)
     var result = new ListBuffer[DataSet]()
 
     do {
@@ -107,9 +131,10 @@ object NextClosePriceTask {
       val label = Nd4j.create(Array[Int](currentBatchSize, 1, timeFrameSize), 'f')
 
       for (i <- 0 to currentBatchSize - 1) {
+        val rows = timeFrames(start)
 
-        for (j <- 0 to timeFrameSize - 1) {
-          val price = rows.get(start + j)
+        for (j <- 0 to rows.size - 1) {
+          val price = rows(j)
           val Open = price.getDouble(1)
           val Close = price.getDouble(2)
           val Low = price.getDouble(3)
@@ -118,7 +143,7 @@ object NextClosePriceTask {
           val NextClose = price.getDouble(6)
           val date = price.getTimestamp(0)
 
-          println(date + " - " + currentBatchSize + " - " + timeFrameSize + " - " + start + " - " + end + " - " + i + " - " + j + " - " + rows.size)
+          println(date + " - " + currentBatchSize + " - " + timeFrameSize + " - " + start + " - " + i + " - " + j + " - " + rows.size)
 
           input.putScalar(Array[Int](i, 0, j), (Open - min.getDouble(0)) / (max.getDouble(0) - min.getDouble(0)))
           input.putScalar(Array[Int](i, 1, j), (Close - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
@@ -130,28 +155,29 @@ object NextClosePriceTask {
         }
 
         start += 1
-        end += 1
       }
 
       result += new DataSet(input, label)
 
-      currentBatchSize = Math.min(miniBatchSize, rows.size - end)
-    } while (end < rows.size)
+      currentBatchSize = Math.min(miniBatchSize, timeFrames.size - start)
+
+    } while (start < timeFrames.size)
 
     result
   }
 
-  def createTestSet(timeFrameSize: Int, min: Row, max: Row, rows: util.List[Row]): ListBuffer[DataSet] = {
+  def createTestSet(timeFrameSize: Int, min: Row, max: Row, timeFrames: ListBuffer[ListBuffer[Row]]): ListBuffer[DataSet] = {
     var start = 0
-    var end = Math.min(timeFrameSize, rows.size)
     var result = new ListBuffer[DataSet]()
 
     do {
       val input = Nd4j.create(Array[Int](timeFrameSize, 5), 'f')
       val label = Nd4j.create(Array[Int](timeFrameSize, 1), 'f')
 
-      for (j <- 0 to timeFrameSize - 1) {
-        val price = rows.get(start + j)
+      val rows = timeFrames(start)
+
+      for (j <- 0 to rows.size - 1) {
+        val price = rows(j)
         val Open = price.getDouble(1)
         val Close = price.getDouble(2)
         val Low = price.getDouble(3)
@@ -160,7 +186,7 @@ object NextClosePriceTask {
         val NextClose = price.getDouble(6)
         val date = price.getTimestamp(0)
 
-        println(date + " - " + " - " + timeFrameSize + " - " + start + " - " + end + " - " + j + " - " + rows.size)
+        println(date + " - " + timeFrameSize + " - " + start + " - " + j + " - " + rows.size)
 
         input.putScalar(Array[Int](j, 0), (Open - min.getDouble(0)) / (max.getDouble(0) - min.getDouble(0)))
         input.putScalar(Array[Int](j, 1), (Close - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
@@ -172,9 +198,30 @@ object NextClosePriceTask {
       }
 
       start += 1
-      end += 1
 
       result += new DataSet(input, label)
+
+    } while (start < timeFrames.size)
+
+    result
+  }
+
+  def createTimeFrameList(timeFrameSize: Int, rows: util.List[Row]): ListBuffer[ListBuffer[Row]] = {
+    var start = 0
+    var end = Math.min(timeFrameSize, rows.size)
+    var result = new ListBuffer[ListBuffer[Row]]()
+
+    do {
+      var timeFrame = new ListBuffer[Row]()
+
+      for (j <- 0 to timeFrameSize - 1) {
+        timeFrame += rows.get(start + j)
+      }
+
+      start += 1
+      end += 1
+
+      result += timeFrame
 
     } while (end < rows.size)
 
