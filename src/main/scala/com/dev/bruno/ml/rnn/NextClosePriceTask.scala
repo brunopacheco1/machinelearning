@@ -64,6 +64,8 @@ object NextClosePriceTask {
 
     val trainingSet = spark.sparkContext.parallelize(createTrainingSet(miniBatchSize, timeFrameSize, min, max, trainingList))
 
+    val trainingTestSet = createTestSet(timeFrameSize, min, max, trainingList)
+
     val testSet = createTestSet(timeFrameSize, min, max, testList)
 
     val sparkNetwork = RNNBuilder.build(5, 1, timeFrameSize, miniBatchSize, sc)
@@ -77,22 +79,41 @@ object NextClosePriceTask {
     val stats = sparkNetwork.getSparkTrainingStats
     StatsUtils.exportStatsAsHtml(stats, "SparkStats.html", sc)
 
-    var xTest = new ListBuffer[Double]()
-    var yTest = new ListBuffer[Double]()
-    var yTestPredicted = new ListBuffer[Double]()
+    var trainingX = new ListBuffer[Double]()
+    var trainingY = new ListBuffer[Double]()
+    var trainingYPredicted = new ListBuffer[Double]()
+    var testX = new ListBuffer[Double]()
+    var testY = new ListBuffer[Double]()
+    var testYPredicted = new ListBuffer[Double]()
 
     var counter = 1D
+
+    trainingTestSet.foreach(set => {
+      val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
+      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
+
+      println(actual + " -> " + prediction)
+
+      trainingX += counter
+
+      trainingY += actual
+
+      trainingYPredicted += prediction
+
+      counter += 1D
+    })
+
     testSet.foreach(set => {
       val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
       val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
 
       println(actual + " -> " + prediction)
 
-      xTest += counter
+      testX += counter
 
-      yTest += actual
+      testY += actual
 
-      yTestPredicted += prediction
+      testYPredicted += prediction
 
       counter += 1D
     })
@@ -103,8 +124,10 @@ object NextClosePriceTask {
     val yAxisOptions = commonAxisOptions.title("Close Price")
 
     val p = Plot()
-      .withScatter(xTest, yTest, ScatterOptions().mode(ScatterMode.Line).name("Test Set"))
-      .withScatter(xTest, yTestPredicted, ScatterOptions().mode(ScatterMode.Line).name("Predictions"))
+      .withScatter(trainingX, trainingY, ScatterOptions().mode(ScatterMode.Line).name("Training Set"))
+      .withScatter(trainingX, trainingYPredicted, ScatterOptions().mode(ScatterMode.Line).name("Training Predictions"))
+      .withScatter(testX, testY, ScatterOptions().mode(ScatterMode.Line).name("Test Set"))
+      .withScatter(testX, testYPredicted, ScatterOptions().mode(ScatterMode.Line).name("Test Predictions"))
       .xAxisOptions(xAxisOptions)
       .yAxisOptions(yAxisOptions)
 
