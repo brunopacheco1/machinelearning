@@ -28,7 +28,7 @@ object RNNBuilder {
   /* How frequently should we average parameters (in number of minibatches)?
   Averaging too frequently can be slow (synchronization + serialization costs) whereas too infrequently can result
   learning difficulties (i.e., network may not converge) */
-  private val averagingFrequency = 3
+  private val averagingFrequency = 4
   //private val batchSizePerWorker = 8 //How many examples should be used per worker (executor) when fitting?
 
   def build(nIn: Int, nOut: Int, timeFrameSize: Int, batchSize: Int, sc: SparkContext): SparkDl4jMultiLayer = {
@@ -38,8 +38,8 @@ object RNNBuilder {
       .iterations(iterations)
       .learningRate(learningRate)
       .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
-      .weightInit(WeightInit.XAVIER)
-      .updater(Updater.RMSPROP)
+      .weightInit(WeightInit.UNIFORM)
+      .updater(Updater.ADAM)
       .regularization(true)
       .l2(1e-4)
       .list
@@ -73,7 +73,7 @@ object RNNBuilder {
       .build
 
     val trainingMaster = new ParameterAveragingTrainingMaster.Builder(timeFrameSize)
-      .workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
+      //.workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
       .averagingFrequency(averagingFrequency)
       .batchSizePerWorker(batchSize).build()
 

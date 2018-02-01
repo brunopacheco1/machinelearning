@@ -7,6 +7,7 @@ import co.theasi.plotly.{AxisOptions, Figure, Plot, ScatterMode, ScatterOptions,
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{Row, SparkSession}
 import org.deeplearning4j.spark.stats.StatsUtils
+import org.deeplearning4j.util.ModelSerializer
 import org.nd4j.linalg.dataset.DataSet
 import org.nd4j.linalg.factory.Nd4j
 
@@ -50,7 +51,9 @@ object NextClosePriceTask {
 
     val max = updatedDataSet.groupBy().max("Open", "Close", "Low", "High", "Volume").head()
 
-    val miniBatchSize = 64
+    val epochs = 1000
+
+    val miniBatchSize = 512
 
     val timeFrameSize = 30
 
@@ -69,8 +72,6 @@ object NextClosePriceTask {
     val testSet = createTestSet(timeFrameSize, min, max, testList)
 
     val sparkNetwork = RNNBuilder.build(5, 1, timeFrameSize, miniBatchSize, sc)
-
-    val epochs = 100
 
     for (i <- 1 to epochs) {
       sparkNetwork.fit(trainingSet)
@@ -92,7 +93,7 @@ object NextClosePriceTask {
       val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
       val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
 
-      println(actual + " -> " + prediction)
+      //println(actual + " -> " + prediction)
 
       trainingX += counter
 
@@ -107,7 +108,7 @@ object NextClosePriceTask {
       val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
       val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(1) - min.getDouble(1)) + min.getDouble(1)
 
-      println(actual + " -> " + prediction)
+      //println(actual + " -> " + prediction)
 
       testX += counter
 
@@ -135,12 +136,12 @@ object NextClosePriceTask {
       .plot(p)
       .title("Stock Market Prediction")
 
-    draw(figure, "stock-prediction", writer.FileOptions(overwrite = true))
+    draw(figure, "stock-prediction-" + epochs + "-" + miniBatchSize + "-" + timeFrameSize, writer.FileOptions(overwrite = true))
 
-    //val net = sparkNetwork.getNetwork
-    //val locationToSave = new File("./lstm_model.zip")
-    // saveUpdater: i.e., the state for Momentum, RMSProp, Adagrad etc. Save this to train your network more in the future
-    // ModelSerializer.writeModel(net, locationToSave, true)
+    val net = sparkNetwork.getNetwork
+    val locationToSave = new File("./lstm_model" + miniBatchSize + "_" + timeFrameSize + ".zip")
+    //saveUpdater: i.e., the state for Momentum, RMSProp, Adagrad etc. Save this to train your network more in the future
+    ModelSerializer.writeModel(net, locationToSave, true)
     spark.close()
   }
 
@@ -166,7 +167,7 @@ object NextClosePriceTask {
           val NextClose = price.getDouble(6)
           val date = price.getTimestamp(0)
 
-          println(date + " - " + currentBatchSize + " - " + timeFrameSize + " - " + start + " - " + i + " - " + j + " - " + rows.size)
+          //println(date + " - " + currentBatchSize + " - " + timeFrameSize + " - " + start + " - " + i + " - " + j + " - " + rows.size)
 
           input.putScalar(Array[Int](i, 0, j), (Open - min.getDouble(0)) / (max.getDouble(0) - min.getDouble(0)))
           input.putScalar(Array[Int](i, 1, j), (Close - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
@@ -209,7 +210,7 @@ object NextClosePriceTask {
         val NextClose = price.getDouble(6)
         val date = price.getTimestamp(0)
 
-        println(date + " - " + timeFrameSize + " - " + start + " - " + j + " - " + rows.size)
+        //println(date + " - " + timeFrameSize + " - " + start + " - " + j + " - " + rows.size)
 
         input.putScalar(Array[Int](j, 0), (Open - min.getDouble(0)) / (max.getDouble(0) - min.getDouble(0)))
         input.putScalar(Array[Int](j, 1), (Close - min.getDouble(1)) / (max.getDouble(1) - min.getDouble(1)))
