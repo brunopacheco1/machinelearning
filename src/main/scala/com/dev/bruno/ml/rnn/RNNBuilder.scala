@@ -38,8 +38,8 @@ object RNNBuilder {
       .iterations(iterations)
       .learningRate(learningRate)
       .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
-      .weightInit(WeightInit.UNIFORM)
-      .updater(Updater.ADAM)
+      .weightInit(WeightInit.XAVIER)
+      .updater(Updater.RMSPROP)
       .regularization(true)
       .l2(1e-4)
       .list
