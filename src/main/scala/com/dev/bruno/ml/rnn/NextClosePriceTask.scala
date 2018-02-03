@@ -1,22 +1,18 @@
 package com.dev.bruno.ml.rnn
 
 import java.io.File
-import java.util
-
 import co.theasi.plotly.{AxisOptions, Figure, Plot, ScatterMode, ScatterOptions, draw, writer}
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.SparkSession
 import org.deeplearning4j.spark.stats.StatsUtils
 import org.deeplearning4j.util.ModelSerializer
-import org.nd4j.linalg.dataset.DataSet
-import org.nd4j.linalg.factory.Nd4j
 
 import scala.collection.mutable.ListBuffer
 
 object NextClosePriceTask {
 
   def main(args: Array[String]): Unit = {
-    val features = Array("Open", "Close", "Low", "High")
+    val features = Array("Open", "Close")
 
     val labels = Array("NextClose")
 
@@ -50,23 +46,20 @@ object NextClosePriceTask {
 
     val max = spark.sql("select max(" + cols.mkString("), max(") + ") from google_stocks").head()
 
-    val list = createTimeFrameList(timeFrameSize, dataSet.collectAsList())
+    val splitRatio = 0.95D
 
-    val splitAt = list.size - 7
-
-    val (trainingList, testList) = list.splitAt(splitAt)
-
-    val trainingSet = spark.sparkContext.parallelize(createTrainingSet(features, labels, miniBatchSize, timeFrameSize, min, max, trainingList))
-
-    val trainingTestSet = createTestSet(features, labels, timeFrameSize, min, max, trainingList)
-
-    val testSet = createTestSet(features, labels, timeFrameSize, min, max, testList)
+    val (trainingSet, trainingTestSet, testSet) = DataSetBuilder.build(features, labels, miniBatchSize, timeFrameSize, min, max, dataSet.collectAsList(), splitRatio)
 
     val sparkNetwork = RNNBuilder.build(features.length, labels.length, timeFrameSize, miniBatchSize, sc)
 
     for (_ <- 1 to epochs) {
-      sparkNetwork.fit(trainingSet)
+      sparkNetwork.fit(spark.sparkContext.parallelize(trainingSet))
     }
+
+    val net = sparkNetwork.getNetwork
+    val locationToSave = new File("./lstm_model_" + epochs + "_" + miniBatchSize + "_" + timeFrameSize + ".zip")
+    //saveUpdater: i.e., the state for Momentum, RMSProp, Adagrad etc. Save this to train your network more in the future
+    ModelSerializer.writeModel(net, locationToSave, true)
 
     val stats = sparkNetwork.getSparkTrainingStats
     StatsUtils.exportStatsAsHtml(stats, "SparkStats.html", sc)
@@ -127,111 +120,6 @@ object NextClosePriceTask {
 
     draw(figure, "stock-prediction-" + epochs + "-" + miniBatchSize + "-" + timeFrameSize, writer.FileOptions(overwrite = true))
 
-    val net = sparkNetwork.getNetwork
-    val locationToSave = new File("./lstm_model_" + epochs + "_" + miniBatchSize + "_" + timeFrameSize + ".zip")
-    //saveUpdater: i.e., the state for Momentum, RMSProp, Adagrad etc. Save this to train your network more in the future
-    ModelSerializer.writeModel(net, locationToSave, true)
     spark.close()
-  }
-
-  def createTrainingSet(features: Array[String], labels: Array[String], miniBatchSize: Int, timeFrameSize: Int, min: Row, max: Row, timeFrames: ListBuffer[ListBuffer[Row]]): ListBuffer[DataSet] = {
-    var start = 0
-    var currentBatchSize = Math.min(miniBatchSize, timeFrames.size)
-    var result = new ListBuffer[DataSet]()
-
-    do {
-      val input = Nd4j.create(Array[Int](currentBatchSize, features.length, timeFrameSize), 'f')
-      val label = Nd4j.create(Array[Int](currentBatchSize, labels.length, timeFrameSize), 'f')
-
-      for (batchIndex <- 0 until currentBatchSize) {
-        val rows = timeFrames(start)
-
-        for (timeFrameIndex <- rows.indices) {
-          val price = rows(timeFrameIndex)
-
-          for(featureIndex <- features.indices) {
-            val value = (price.getDouble(featureIndex) - min.getDouble(featureIndex)) / (max.getDouble(featureIndex) - min.getDouble(featureIndex))
-
-            input.putScalar(Array[Int](batchIndex, featureIndex, timeFrameIndex), value)
-          }
-
-          for(labelIndex <- labels.indices) {
-            val priceRowIndex = features.length + labelIndex
-
-            val value = (price.getDouble(priceRowIndex) - min.getDouble(priceRowIndex)) / (max.getDouble(priceRowIndex) - min.getDouble(priceRowIndex))
-
-            label.putScalar(Array[Int](batchIndex, labelIndex, timeFrameIndex), value)
-          }
-        }
-
-        start += 1
-      }
-
-      result += new DataSet(input, label)
-
-      currentBatchSize = Math.min(miniBatchSize, timeFrames.size - start)
-
-    } while (start < timeFrames.size)
-
-    result
-  }
-
-  def createTestSet(features: Array[String], labels: Array[String], timeFrameSize: Int, min: Row, max: Row, timeFrames: ListBuffer[ListBuffer[Row]]): ListBuffer[DataSet] = {
-    var start = 0
-    var result = new ListBuffer[DataSet]()
-
-    do {
-      val input = Nd4j.create(Array[Int](timeFrameSize, features.length), 'f')
-      val label = Nd4j.create(Array[Int](timeFrameSize, labels.length), 'f')
-
-      val rows = timeFrames(start)
-
-      for (timeFrameIndex <- rows.indices) {
-        val price = rows(timeFrameIndex)
-
-        for(featureIndex <- features.indices) {
-          val value = (price.getDouble(featureIndex) - min.getDouble(featureIndex)) / (max.getDouble(featureIndex) - min.getDouble(featureIndex))
-
-          input.putScalar(Array[Int](timeFrameIndex, featureIndex), value)
-        }
-
-        for(labelIndex <- labels.indices) {
-          val priceRowIndex = features.length + labelIndex
-
-          val value = (price.getDouble(priceRowIndex) - min.getDouble(priceRowIndex)) / (max.getDouble(priceRowIndex) - min.getDouble(priceRowIndex))
-
-          label.putScalar(Array[Int](timeFrameIndex, labelIndex), value)
-        }
-      }
-
-      start += 1
-
-      result += new DataSet(input, label)
-
-    } while (start < timeFrames.size)
-
-    result
-  }
-
-  def createTimeFrameList(timeFrameSize: Int, rows: util.List[Row]): ListBuffer[ListBuffer[Row]] = {
-    var start = 0
-    var end = Math.min(timeFrameSize, rows.size)
-    var result = new ListBuffer[ListBuffer[Row]]()
-
-    do {
-      var timeFrame = new ListBuffer[Row]()
-
-      for (j <- 0 until timeFrameSize) {
-        timeFrame += rows.get(start + j)
-      }
-
-      start += 1
-      end += 1
-
-      result += timeFrame
-
-    } while (end < rows.size)
-
-    result
   }
 }

@@ -4,7 +4,6 @@ import org.apache.spark.SparkContext
 import org.deeplearning4j.nn.api.OptimizationAlgorithm
 import org.deeplearning4j.nn.conf.layers.{DenseLayer, GravesLSTM, RnnOutputLayer}
 import org.deeplearning4j.nn.conf.{BackpropType, NeuralNetConfiguration, Updater}
-import org.deeplearning4j.nn.multilayer.MultiLayerNetwork
 import org.deeplearning4j.nn.weights.WeightInit
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer
@@ -19,17 +18,15 @@ object RNNBuilder {
   private val seed = 12345
 
   private val lstmLayer1Size = 256
-  private val lstmLayer2Size = 256
+  private val lstmLayer2Size = 512
   private val denseLayerSize = 32
   private val dropoutRatio = 0.2
-  //private val truncatedBPTTLength = 22
 
   //Set up the Spark-specific configuration
   /* How frequently should we average parameters (in number of minibatches)?
   Averaging too frequently can be slow (synchronization + serialization costs) whereas too infrequently can result
   learning difficulties (i.e., network may not converge) */
   private val averagingFrequency = 4
-  //private val batchSizePerWorker = 8 //How many examples should be used per worker (executor) when fitting?
 
   def build(nIn: Int, nOut: Int, timeFrameSize: Int, batchSize: Int, sc: SparkContext): SparkDl4jMultiLayer = {
 
@@ -73,7 +70,6 @@ object RNNBuilder {
       .build
 
     val trainingMaster = new ParameterAveragingTrainingMaster.Builder(timeFrameSize)
-      //.workerPrefetchNumBatches(2)    //Asynchronously prefetch up to 2 batches
       .averagingFrequency(averagingFrequency)
       .batchSizePerWorker(batchSize).build()
 
