@@ -1,13 +1,18 @@
 package com.dev.bruno.ml.rnn
 
+import java.io.File
+import java.util.Collections
+
 import org.apache.spark.SparkContext
+import org.deeplearning4j.api.storage.impl.RemoteUIStatsStorageRouter
 import org.deeplearning4j.nn.api.OptimizationAlgorithm
 import org.deeplearning4j.nn.conf.layers.{DenseLayer, GravesLSTM, RnnOutputLayer}
 import org.deeplearning4j.nn.conf.{BackpropType, NeuralNetConfiguration, Updater}
 import org.deeplearning4j.nn.weights.WeightInit
-import org.deeplearning4j.optimize.listeners.ScoreIterationListener
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer
 import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster
+import org.deeplearning4j.ui.stats.StatsListener
+import org.deeplearning4j.ui.storage.FileStatsStorage
 import org.nd4j.linalg.activations.Activation
 import org.nd4j.linalg.lossfunctions.LossFunctions
 
@@ -18,7 +23,7 @@ object RNNBuilder {
   private val seed = 12345
 
   private val lstmLayer1Size = 256
-  private val lstmLayer2Size = 512
+  private val lstmLayer2Size = 256
   private val denseLayerSize = 32
   private val dropoutRatio = 0.2
 
@@ -73,9 +78,15 @@ object RNNBuilder {
       .averagingFrequency(averagingFrequency)
       .batchSizePerWorker(batchSize).build()
 
+
     val net = new SparkDl4jMultiLayer(sc, conf, trainingMaster)
-    net.setListeners(new ScoreIterationListener(100))
     net.setCollectTrainingStats(true)
+
+    val ss = new FileStatsStorage(new File("./training_stats.dl4j"))
+    net.setListeners(ss, Collections.singletonList(new StatsListener(null)))
+
+    //val remoteUIRouter = new RemoteUIStatsStorageRouter("http://localhost:9000")
+    //net.setListeners(remoteUIRouter, Collections.singletonList(new StatsListener(null)))
 
     net
   }

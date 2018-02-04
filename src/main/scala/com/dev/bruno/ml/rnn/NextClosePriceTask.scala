@@ -12,7 +12,7 @@ import scala.collection.mutable.ListBuffer
 object NextClosePriceTask {
 
   def main(args: Array[String]): Unit = {
-    val features = Array("Open", "Close")
+    val features = Array("Open", "Close", "Low", "High")
 
     val labels = Array("NextClose")
 
@@ -46,14 +46,16 @@ object NextClosePriceTask {
 
     val max = spark.sql("select max(" + cols.mkString("), max(") + ") from google_stocks").head()
 
-    val splitRatio = 0.95D
+    val splitRatio = 0.98D
 
     val (trainingSet, trainingTestSet, testSet) = DataSetBuilder.build(features, labels, miniBatchSize, timeFrameSize, min, max, dataSet.collectAsList(), splitRatio)
+
+    val trainingSetRDD = spark.sparkContext.parallelize(trainingSet)
 
     val sparkNetwork = RNNBuilder.build(features.length, labels.length, timeFrameSize, miniBatchSize, sc)
 
     for (_ <- 1 to epochs) {
-      sparkNetwork.fit(spark.sparkContext.parallelize(trainingSet))
+      sparkNetwork.fit(trainingSetRDD)
     }
 
     val net = sparkNetwork.getNetwork
