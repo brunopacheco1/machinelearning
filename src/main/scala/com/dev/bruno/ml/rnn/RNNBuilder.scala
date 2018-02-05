@@ -1,6 +1,5 @@
 package com.dev.bruno.ml.rnn
 
-import java.io.File
 import java.util.Collections
 
 import org.apache.spark.SparkContext
@@ -12,7 +11,6 @@ import org.deeplearning4j.nn.weights.WeightInit
 import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer
 import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster
 import org.deeplearning4j.ui.stats.StatsListener
-import org.deeplearning4j.ui.storage.FileStatsStorage
 import org.nd4j.linalg.activations.Activation
 import org.nd4j.linalg.lossfunctions.LossFunctions
 
@@ -74,19 +72,18 @@ object RNNBuilder {
       .backprop(true)
       .build
 
-    val trainingMaster = new ParameterAveragingTrainingMaster.Builder(timeFrameSize)
+    val trainingMaster = new ParameterAveragingTrainingMaster.Builder(batchSize)
       .averagingFrequency(averagingFrequency)
+      .workerPrefetchNumBatches(0)
+      .saveUpdater(true) //save things like adagrad squared gradient histories
       .batchSizePerWorker(batchSize).build()
 
 
     val net = new SparkDl4jMultiLayer(sc, conf, trainingMaster)
     net.setCollectTrainingStats(true)
 
-    val ss = new FileStatsStorage(new File("./training_stats.dl4j"))
-    net.setListeners(ss, Collections.singletonList(new StatsListener(null)))
-
-    //val remoteUIRouter = new RemoteUIStatsStorageRouter("http://localhost:9000")
-    //net.setListeners(remoteUIRouter, Collections.singletonList(new StatsListener(null)))
+    val remoteUIRouter = new RemoteUIStatsStorageRouter("http://localhost:9000")
+    net.setListeners(remoteUIRouter, Collections.singletonList(new StatsListener(null)))
 
     net
   }

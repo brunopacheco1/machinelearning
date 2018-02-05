@@ -4,7 +4,6 @@ import java.io.File
 import co.theasi.plotly.{AxisOptions, Figure, Plot, ScatterMode, ScatterOptions, draw, writer}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
-import org.deeplearning4j.spark.stats.StatsUtils
 import org.deeplearning4j.util.ModelSerializer
 
 import scala.collection.mutable.ListBuffer
@@ -14,9 +13,11 @@ object NextClosePriceTask {
   def main(args: Array[String]): Unit = {
     val features = Array("Open", "Close", "Low", "High")
 
-    val labels = Array("NextClose")
+    val labels = Array("NextOpen", "NextClose", "NextLow", "NextHigh")
 
-    val epochs = 1000
+    val closePriceIndex = features.length + 1
+
+    val epochs = 1500
 
     val miniBatchSize = 512
 
@@ -58,13 +59,12 @@ object NextClosePriceTask {
       sparkNetwork.fit(trainingSetRDD)
     }
 
+    val name = epochs + "_" + miniBatchSize + "_" + timeFrameSize + "_" + features.mkString(".") + "_" + labels.mkString(".")
+
     val net = sparkNetwork.getNetwork
-    val locationToSave = new File("./lstm_model_" + epochs + "_" + miniBatchSize + "_" + timeFrameSize + ".zip")
+    val locationToSave = new File("./lstm_model_" + name + ".zip")
     //saveUpdater: i.e., the state for Momentum, RMSProp, Adagrad etc. Save this to train your network more in the future
     ModelSerializer.writeModel(net, locationToSave, true)
-
-    val stats = sparkNetwork.getSparkTrainingStats
-    StatsUtils.exportStatsAsHtml(stats, "SparkStats.html", sc)
 
     var trainingX = new ListBuffer[Double]()
     var trainingY = new ListBuffer[Double]()
@@ -76,9 +76,8 @@ object NextClosePriceTask {
     var counter = 1D
 
     trainingTestSet.foreach(set => {
-      val labelIndex = features.length + labels.length - 1
-      val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(labelIndex) - min.getDouble(labelIndex)) + min.getDouble(labelIndex)
-      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(labelIndex) - min.getDouble(labelIndex)) + min.getDouble(labelIndex)
+      val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(closePriceIndex) - min.getDouble(closePriceIndex)) + min.getDouble(closePriceIndex)
+      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(closePriceIndex) - min.getDouble(closePriceIndex)) + min.getDouble(closePriceIndex)
 
       trainingX += counter
 
@@ -90,9 +89,8 @@ object NextClosePriceTask {
     })
 
     testSet.foreach(set => {
-      val labelIndex = features.length + labels.length - 1
-      val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(labelIndex) - min.getDouble(labelIndex)) + min.getDouble(labelIndex)
-      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(labelIndex) - min.getDouble(labelIndex)) + min.getDouble(labelIndex)
+      val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(closePriceIndex) - min.getDouble(closePriceIndex)) + min.getDouble(closePriceIndex)
+      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(closePriceIndex) - min.getDouble(closePriceIndex)) + min.getDouble(closePriceIndex)
 
       testX += counter
 
@@ -118,9 +116,9 @@ object NextClosePriceTask {
 
     val figure = Figure()
       .plot(p)
-      .title("Stock Market Prediction")
+      .title("Stock Market Prediction (ft: " + features.mkString(", ") + ")")
 
-    draw(figure, "stock-prediction-" + epochs + "-" + miniBatchSize + "-" + timeFrameSize, writer.FileOptions(overwrite = true))
+    draw(figure, name, writer.FileOptions(overwrite = true))
 
     spark.close()
   }

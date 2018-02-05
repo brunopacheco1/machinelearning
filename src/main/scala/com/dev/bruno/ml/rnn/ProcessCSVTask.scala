@@ -15,7 +15,7 @@ object ProcessCSVTask {
 
     // Basic configuration
     val conf = new SparkConf()
-      .setAppName("RNN.NextClosePriceTask")
+      .setAppName("RNN.ProcessCSVTask")
       .setMaster("local[*]")
 
     // Initialization of Spark And Spark SQL Context
@@ -28,15 +28,15 @@ object ProcessCSVTask {
     // Geting the NextOpenPrice for all dataSet
     dataSet.createOrReplaceTempView("temp_stocks")
 
-    val nextOpenDataSetSql = "select date_add(Date, -1) as Date, Close as NextClose from temp_stocks "
+    val nextOpenDataSetSql = "select date_add(Date, -1) as Date, Open as NextOpen, Close as NextClose, Low as NextLow, High as NextHigh, Volume as NextVolume from temp_stocks"
 
     val nextOpenDataSet = spark.sql(nextOpenDataSetSql)
     nextOpenDataSet.createOrReplaceTempView("temp_next_close_price")
 
-    val sql = "select s.Date, s.Open, s.Close, s.Low, s.High, s.Volume, c.NextClose from temp_stocks s, temp_next_close_price c where to_date(s.Date) = c.Date order by s.Date"
-    val filter = "Date is not null and Open is not null and Close is not null and Low is not null and High is not null and Volume is not null and NextClose is not null"
+    val sql = "select s.Date, s.Open, s.Close, s.Low, s.High, s.Volume, c.NextOpen, c.NextClose, c.NextLow, c.NextHigh, c.NextVolume from temp_stocks s, temp_next_close_price c where to_date(s.Date) = c.Date order by s.Date"
+    val filter = "Date is not null and Open is not null and Close is not null and Low is not null and High is not null and Volume is not null and NextOpen is not null and NextClose is not null and NextLow is not null and NextHigh is not null and NextVolume is not null"
 
-    val updatedDataSet = spark.sql(sql).filter(filter).distinct().sort("Date")
+    val updatedDataSet = spark.sql(sql).filter(filter).distinct()
 
     // Saving the dataset as parquet
     updatedDataSet.write.mode(SaveMode.Overwrite).parquet("goog.parquet")
