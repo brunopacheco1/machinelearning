@@ -15,7 +15,9 @@ object NextClosePriceTask {
 
     val labels = Array("NextOpen", "NextClose", "NextLow", "NextHigh")
 
-    val closePriceIndex = features.length + 1
+    val closePriceMinMaxIndex = features.length + 1
+
+    val closePriceIndex = 1
 
     val epochs = 1500
 
@@ -76,27 +78,33 @@ object NextClosePriceTask {
     var counter = 1D
 
     trainingTestSet.foreach(set => {
-      val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(closePriceIndex) - min.getDouble(closePriceIndex)) + min.getDouble(closePriceIndex)
-      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(closePriceIndex) - min.getDouble(closePriceIndex)) + min.getDouble(closePriceIndex)
+      val actual = set.getLabels.getColumn(closePriceIndex)
+      val actualPrice = actual.getDouble(timeFrameSize - 1) * (max.getDouble(closePriceMinMaxIndex) - min.getDouble(closePriceMinMaxIndex)) + min.getDouble(closePriceMinMaxIndex)
+
+      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getColumn(closePriceIndex)
+      val predictionPrice = prediction.getDouble(timeFrameSize - 1) * (max.getDouble(closePriceMinMaxIndex) - min.getDouble(closePriceMinMaxIndex)) + min.getDouble(closePriceMinMaxIndex)
 
       trainingX += counter
 
-      trainingY += actual
+      trainingY += actualPrice
 
-      trainingYPredicted += prediction
+      trainingYPredicted += predictionPrice
 
       counter += 1D
     })
 
     testSet.foreach(set => {
-      val actual = set.getLabels.getDouble(timeFrameSize - 1) * (max.getDouble(closePriceIndex) - min.getDouble(closePriceIndex)) + min.getDouble(closePriceIndex)
-      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getDouble(timeFrameSize - 1) * (max.getDouble(closePriceIndex) - min.getDouble(closePriceIndex)) + min.getDouble(closePriceIndex)
+      val actual = set.getLabels.getColumn(closePriceIndex)
+      val actualPrice = actual.getDouble(timeFrameSize - 1) * (max.getDouble(closePriceMinMaxIndex) - min.getDouble(closePriceMinMaxIndex)) + min.getDouble(closePriceMinMaxIndex)
+
+      val prediction = sparkNetwork.getNetwork.rnnTimeStep(set.getFeatures).getColumn(closePriceIndex)
+      val predictionPrice = prediction.getDouble(timeFrameSize - 1) * (max.getDouble(closePriceMinMaxIndex) - min.getDouble(closePriceMinMaxIndex)) + min.getDouble(closePriceMinMaxIndex)
 
       testX += counter
 
-      testY += actual
+      testY += actualPrice
 
-      testYPredicted += prediction
+      testYPredicted += predictionPrice
 
       counter += 1D
     })
