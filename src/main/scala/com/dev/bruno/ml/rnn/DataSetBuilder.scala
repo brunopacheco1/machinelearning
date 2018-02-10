@@ -2,6 +2,8 @@ package com.dev.bruno.ml.rnn
 
 import java.util
 
+import org.apache.spark.SparkContext
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
 import org.nd4j.linalg.dataset.DataSet
 import org.nd4j.linalg.factory.Nd4j
@@ -18,8 +20,9 @@ object DataSetBuilder {
              min: Row,
              max: Row,
              rows: util.List[Row],
-             splitRatio: Double
-           ): (ListBuffer[DataSet], ListBuffer[DataSet], ListBuffer[DataSet]) = {
+             splitRatio: Double,
+             sc: SparkContext
+           ): (RDD[DataSet], ListBuffer[DataSet], ListBuffer[DataSet]) = {
 
     val list = createTimeFrameList(timeFrameSize, rows)
 
@@ -33,7 +36,9 @@ object DataSetBuilder {
 
     val testSet = createTestSet(features, labels, timeFrameSize, min, max, testList)
 
-    (trainingSet, trainingTestSet, testSet)
+    val trainingSetRDD = sc.parallelize(trainingSet)
+
+    (trainingSetRDD, trainingTestSet, testSet)
   }
 
   def createTrainingSet(features: Array[String], labels: Array[String], miniBatchSize: Int, timeFrameSize: Int, min: Row, max: Row, timeFrames: ListBuffer[ListBuffer[Row]]): ListBuffer[DataSet] = {

@@ -51,9 +51,8 @@ object NextClosePriceTask {
 
     val splitRatio = 0.98D
 
-    val (trainingSet, trainingTestSet, testSet) = DataSetBuilder.build(features, labels, miniBatchSize, timeFrameSize, min, max, dataSet.collectAsList(), splitRatio)
-
-    val trainingSetRDD = spark.sparkContext.parallelize(trainingSet)
+    val (trainingSetRDD, trainingTestSet, testSet) = DataSetBuilder
+      .build(features, labels, miniBatchSize, timeFrameSize, min, max, dataSet.collectAsList(), splitRatio, sc)
 
     val sparkNetwork = RNNBuilder.build(features.length, labels.length, timeFrameSize, miniBatchSize, sc)
 
