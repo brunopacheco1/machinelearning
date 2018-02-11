@@ -1,17 +1,22 @@
-package com.dev.bruno.ml.lr
+package com.dev.bruno.ml.regression
+
+import java.io.File
 
 import org.apache.spark.SparkConf
 import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.regression.LinearRegression
 import org.apache.spark.sql.SparkSession
-
 import co.theasi.plotly._
 
-object SalaryTask {
+object LinearRegression {
 
   def main(args: Array[String]): Unit = {
+    // Dependency to run in standalone mode on windows
+    val hadoopFolder = new File("./hadoop").getAbsolutePath
+    System.setProperty("hadoop.home.dir", hadoopFolder)
+
     val conf = new SparkConf()
-      .setAppName("LR.ClosePriceTask")
+      .setAppName("LinearRegression")
       .setMaster("local[*]")
 
     val spark = SparkSession.builder.config(conf).getOrCreate

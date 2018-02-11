@@ -1,6 +1,7 @@
-package com.dev.bruno.ml.rnn
+package com.dev.bruno.ml.rnn.lstm
 
 import java.io.File
+
 import co.theasi.plotly.{AxisOptions, Figure, Plot, ScatterMode, ScatterOptions, draw, writer}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
@@ -8,7 +9,7 @@ import org.deeplearning4j.util.ModelSerializer
 
 import scala.collection.mutable.ListBuffer
 
-object NextClosePriceTask {
+object LSTM {
 
   def main(args: Array[String]): Unit = {
     val features = Array("Open", "Close", "Low", "High")
@@ -19,7 +20,7 @@ object NextClosePriceTask {
 
     val closePriceIndex = 1
 
-    val epochs = 1500
+    val epochs = 3000
 
     val miniBatchSize = 512
 
@@ -31,7 +32,7 @@ object NextClosePriceTask {
 
     // Basic configuration
     val conf = new SparkConf()
-      .setAppName("RNN.NextClosePriceTask")
+      .setAppName("LSTM")
       .setMaster("local[*]")
 
     // Initialization of Spark And Spark SQL Context
@@ -43,7 +44,7 @@ object NextClosePriceTask {
 
     spark.read.parquet("goog.parquet").createOrReplaceTempView("google_stocks")
 
-    val dataSet = spark.sql("select " + cols.mkString(", ") + " from google_stocks order by Date")
+    val dataSet = spark.sql("select " + cols.mkString(", ") + " from google_stocks where Date >= '2017-01-01' order by Date")
 
     val min = spark.sql("select min(" + cols.mkString("), min(") + ") from google_stocks").head()
 
@@ -54,7 +55,7 @@ object NextClosePriceTask {
     val (trainingSetRDD, trainingTestSet, testSet) = DataSetBuilder
       .build(features, labels, miniBatchSize, timeFrameSize, min, max, dataSet.collectAsList(), splitRatio, sc)
 
-    val sparkNetwork = RNNBuilder.build(features.length, labels.length, timeFrameSize, miniBatchSize, sc)
+    val sparkNetwork = NeuralNetBuilder.build(features.length, labels.length, timeFrameSize, miniBatchSize, sc)
 
     for (_ <- 1 to epochs) {
       sparkNetwork.fit(trainingSetRDD)

@@ -1,8 +1,8 @@
-package com.dev.bruno.ml.rnn
+package com.dev.bruno.ml.rnn.lstm
 
 import org.deeplearning4j.ui.api.UIServer
 
-object NetworkDebuger {
+object TrainingDebugger {
 
   def main(args: Array[String]): Unit = {
 

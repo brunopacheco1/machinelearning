@@ -1,4 +1,4 @@
-package com.dev.bruno.ml.rnn
+package com.dev.bruno.ml.rnn.lstm
 
 import java.util
 

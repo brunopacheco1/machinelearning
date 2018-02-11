@@ -1,11 +1,11 @@
-package com.dev.bruno.ml.rnn
+package com.dev.bruno.ml.rnn.lstm
 
 import java.io.File
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{SaveMode, SparkSession}
 
-object ProcessCSVTask {
+object ProcessCSV {
 
   def main(args: Array[String]): Unit = {
 
@@ -15,7 +15,7 @@ object ProcessCSVTask {
 
     // Basic configuration
     val conf = new SparkConf()
-      .setAppName("RNN.ProcessCSVTask")
+      .setAppName("ProcessCSVTask")
       .setMaster("local[*]")
 
     // Initialization of Spark And Spark SQL Context

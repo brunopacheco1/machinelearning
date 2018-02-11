@@ -1,4 +1,4 @@
-package com.dev.bruno.ml.rnn
+package com.dev.bruno.ml.rnn.lstm
 
 import java.util.Collections
 
@@ -14,14 +14,13 @@ import org.deeplearning4j.ui.stats.StatsListener
 import org.nd4j.linalg.activations.Activation
 import org.nd4j.linalg.lossfunctions.LossFunctions
 
-object RNNBuilder {
+object NeuralNetBuilder {
 
   private val learningRate = 0.05
   private val iterations = 1
   private val seed = 12345
 
-  private val lstmLayer1Size = 256
-  private val lstmLayer2Size = 256
+  private val lstmLayerSize = 512
   private val denseLayerSize = 32
   private val dropoutRatio = 0.2
 
@@ -45,21 +44,15 @@ object RNNBuilder {
       .list
       .layer(0, new GravesLSTM.Builder()
         .nIn(nIn)
-        .nOut(lstmLayer1Size)
+        .nOut(lstmLayerSize)
         .activation(Activation.TANH)
         .gateActivationFunction(Activation.HARDSIGMOID)
         .dropOut(dropoutRatio).build)
-      .layer(1, new GravesLSTM.Builder()
-        .nIn(lstmLayer1Size)
-        .nOut(lstmLayer2Size)
-        .activation(Activation.TANH)
-        .gateActivationFunction(Activation.HARDSIGMOID)
-        .dropOut(dropoutRatio).build)
-      .layer(2, new DenseLayer.Builder()
-        .nIn(lstmLayer2Size)
+      .layer(1, new DenseLayer.Builder()
+        .nIn(lstmLayerSize)
         .nOut(denseLayerSize)
         .activation(Activation.RELU).build)
-      .layer(3, new RnnOutputLayer.Builder()
+      .layer(2, new RnnOutputLayer.Builder()
         .nIn(denseLayerSize)
         .nOut(nOut)
         .activation(Activation.IDENTITY)
