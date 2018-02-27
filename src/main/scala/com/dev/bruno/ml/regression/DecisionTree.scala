@@ -9,7 +9,7 @@ import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.regression.DecisionTreeRegressor
 import org.apache.spark.sql.SparkSession
 
-object DecisionTreeRegression {
+object DecisionTree {
 
   def main(args: Array[String]): Unit = {
     // Dependency to run in standalone mode on windows

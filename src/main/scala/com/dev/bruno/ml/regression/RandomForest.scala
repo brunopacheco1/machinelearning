@@ -9,7 +9,7 @@ import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.regression.{DecisionTreeRegressor, RandomForestRegressor}
 import org.apache.spark.sql.SparkSession
 
-object RandomForestRegression {
+object RandomForest {
 
   def main(args: Array[String]): Unit = {
     // Dependency to run in standalone mode on windows
