@@ -1,4 +1,4 @@
-package com.dev.bruno.ml.rnn.lstm
+package com.dev.bruno.ml.deeplearning.lstm
 
 import java.util
 
