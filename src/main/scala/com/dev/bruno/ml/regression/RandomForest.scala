@@ -37,6 +37,7 @@ object RandomForest {
 
     val regressor = new RandomForestRegressor()
       .setLabelCol("Salary")
+      .setNumTrees(4000)
       .setFeaturesCol("features")
       .setPredictionCol("predict")
 
