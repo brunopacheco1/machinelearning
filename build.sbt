@@ -6,13 +6,11 @@ scalaVersion := "2.11.12"
 
 classpathTypes += "maven-plugin"
 
-libraryDependencies += "org.apache.spark" %% "spark-mllib" % "2.3.0"
+libraryDependencies += "org.apache.spark" %% "spark-mllib" % "2.1.0"
 
-libraryDependencies += "org.apache.spark" %% "spark-hive" % "2.3.0"
+libraryDependencies += "org.apache.spark" %% "spark-hive" % "2.1.0"
 
-libraryDependencies += "org.apache.spark" %% "spark-sql" % "2.3.0"
-
-libraryDependencies += "com.johnsnowlabs.nlp" %% "spark-nlp" % "1.5.1"
+libraryDependencies += "org.apache.spark" %% "spark-sql" % "2.1.0"
 
 libraryDependencies += "org.deeplearning4j" %% "dl4j-spark-ml" % "0.9.1_spark_2"
 
